@@ -166,6 +166,9 @@ int fb_copy_cmap(const struct fb_cmap *from, struct fb_cmap *to)
 	unsigned int tooff = 0, fromoff = 0;
 	size_t size;
 
+	if (!to || !from)
+		return -EINVAL;
+
 	if (to->start > from->start)
 		fromoff = to->start - from->start;
 	else
@@ -178,9 +181,12 @@ int fb_copy_cmap(const struct fb_cmap *from, struct fb_cmap *to)
 		return -EINVAL;
 	size *= sizeof(u16);
 
-	memcpy(to->red+tooff, from->red+fromoff, size);
-	memcpy(to->green+tooff, from->green+fromoff, size);
-	memcpy(to->blue+tooff, from->blue+fromoff, size);
+	if (from->red && to->red)
+		memcpy(to->red+tooff, from->red+fromoff, size);
+	if (from->green && to->green)
+		memcpy(to->green+tooff, from->green+fromoff, size);
+	if (from->blue && to->blue)
+		memcpy(to->blue+tooff, from->blue+fromoff, size);
 	if (from->transp && to->transp)
 		memcpy(to->transp+tooff, from->transp+fromoff, size);
 	return 0;
@@ -191,6 +197,9 @@ int fb_cmap_to_user(const struct fb_cmap *from, struct fb_cmap_user *to)
 	unsigned int tooff = 0, fromoff = 0;
 	size_t size;
 
+	if (!to || !from)
+		return -EINVAL;
+
 	if (to->start > from->start)
 		fromoff = to->start - from->start;
 	else
@@ -203,12 +212,15 @@ int fb_cmap_to_user(const struct fb_cmap *from, struct fb_cmap_user *to)
 		return -EINVAL;
 	size *= sizeof(u16);
 
-	if (copy_to_user(to->red+tooff, from->red+fromoff, size))
-		return -EFAULT;
-	if (copy_to_user(to->green+tooff, from->green+fromoff, size))
-		return -EFAULT;
-	if (copy_to_user(to->blue+tooff, from->blue+fromoff, size))
-		return -EFAULT;
+	if (from->red && to->red)
+		if (copy_to_user(to->red+tooff, from->red+fromoff, size))
+			return -EFAULT;
+	if (from->green && to->green)
+		if (copy_to_user(to->green+tooff, from->green+fromoff, size))
+			return -EFAULT;
+	if (from->blue && to->blue)
+		if (copy_to_user(to->blue+tooff, from->blue+fromoff, size))
+			return -EFAULT;
 	if (from->transp && to->transp)
 		if (copy_to_user(to->transp+tooff, from->transp+fromoff, size))
 			return -EFAULT;
@@ -287,8 +299,8 @@ int fb_set_user_cmap(struct fb_cmap_user *cmap, struct fb_info *info)
 		rc = -ENODEV;
 		goto out;
 	}
-	if (cmap->start < 0 || (!info->fbops->fb_setcolreg &&
-				!info->fbops->fb_setcmap)) {
+	if (!info->fbops->fb_setcolreg &&
+				!info->fbops->fb_setcmap) {
 		rc = -EINVAL;
 		goto out1;
 	}

@@ -27,10 +27,6 @@
 #endif
 #include <ram_console.h>
 
-#ifdef CONFIG_KEXEC_HARDBOOT
-#include <linux/memblock.h>
-#endif
-
 #ifdef CONFIG_ANDROID_RAM_CONSOLE
 #define LGE_RAM_CONSOLE_SIZE (128 * SZ_1K * 2)
 static char bootreason[128] = {0,};
@@ -117,27 +113,6 @@ static void __init lge_add_persist_ram_devices(void)
 
 void __init lge_reserve(void)
 {
-#ifdef CONFIG_KEXEC_HARDBOOT
-	// Reserve space for hardboot page - just after ram_console,
-	// at the start of second memory bank
-	int ret;
-	phys_addr_t start;
-	struct membank* bank;
-
-	if (meminfo.nr_banks < 2) {
-		pr_err("%s: not enough membank\n", __func__);
-		return;
-	}
-
-	bank = &meminfo.bank[1];
-	start = bank->start + SZ_1M + LGE_PERSISTENT_RAM_SIZE;
-	ret = memblock_remove(start, SZ_1M);
-	if(!ret)
-		pr_info("Hardboot page reserved at 0x%X\n", start);
-	else
-		pr_err("Failed to reserve space for hardboot page at 0x%X!\n", start);
-#endif
-
 #if defined(CONFIG_ANDROID_PERSISTENT_RAM)
 	lge_add_persist_ram_devices();
 #endif
@@ -243,3 +218,26 @@ hw_rev_type lge_get_board_revno(void)
 {
     return lge_bd_rev;
 }
+
+#if defined(CONFIG_LCD_KCAL)
+extern int kcal_set_values(int kcal_r, int kcal_g, int kcal_b);
+static int __init display_kcal_setup(char *kcal)
+{
+	char vaild_k = 0;
+	int kcal_r = 255;
+	int kcal_g = 255;
+	int kcal_b = 255;
+
+	sscanf(kcal, "%d|%d|%d|%c", &kcal_r, &kcal_g, &kcal_b, &vaild_k );
+	pr_info("kcal is %d|%d|%d|%c\n", kcal_r, kcal_g, kcal_b, vaild_k);
+
+	if (vaild_k != 'K') {
+		pr_info("kcal not calibrated yet : %d\n", vaild_k);
+		kcal_r = kcal_g = kcal_b = 255;
+	}
+
+	kcal_set_values(kcal_r, kcal_g, kcal_b);
+	return 1;
+}
+__setup("lge.kcal=", display_kcal_setup);
+#endif

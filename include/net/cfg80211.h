@@ -2624,6 +2624,15 @@ unsigned int ieee80211_get_hdrlen_from_skb(const struct sk_buff *skb);
 unsigned int __attribute_const__ ieee80211_hdrlen(__le16 fc);
 
 /**
+ * ieee80211_get_mesh_hdrlen - get mesh extension header length
+ * @meshhdr: the mesh extension header, only the flags field
+ *	(first byte) will be accessed
+ * Returns the length of the extension header, which is always at
+ * least 6 bytes and at most 18 if address 5 and 6 are present.
+ */
+unsigned int ieee80211_get_mesh_hdrlen(struct ieee80211s_hdr *meshhdr);
+
+/**
  * DOC: Data path helpers
  *
  * In addition to generic utilities, cfg80211 also offers
@@ -3646,7 +3655,7 @@ void cfg80211_tdls_oper_request(struct net_device *dev, const u8 *peer,
  *
  * return 0 if MCS index >= 32
  */
-u16 cfg80211_calculate_bitrate(struct rate_info *rate);
+u32 cfg80211_calculate_bitrate(struct rate_info *rate);
 
 /**
  * struct cfg80211_ft_event - FT Information Elements

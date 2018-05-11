@@ -46,32 +46,6 @@
 #include <linux/input/doubletap2wake.h>
 #endif
 #endif
-#ifdef CONFIG_PWRKEY_SUSPEND
-#include <linux/qpnp/power-on.h>
-#endif
-
-
-#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-static bool prevent_sleep_irq_wake_enabled = false;
-static void prevent_sleep_enable_irq_wake(unsigned int irq){
-	if(!prevent_sleep_irq_wake_enabled){
-		prevent_sleep_irq_wake_enabled = true;
-		enable_irq_wake(irq);
-		pr_info("irq_wake enabled\n");
-	}
-	else
-		pr_info("irq_wake already enabled\n");
-}
-static void prevent_sleep_disable_irq_wake(unsigned int irq){
-	if(prevent_sleep_irq_wake_enabled){
-		prevent_sleep_irq_wake_enabled = false;
-		disable_irq_wake(irq);
-		pr_info("irq_wake disabled\n");
-	}
-	else
-		pr_info("irq_wake already disabled\n");
-}
-#endif
 
 static struct workqueue_struct *synaptics_wq;
 
@@ -1703,15 +1677,11 @@ static int lcd_notifier_callback(struct notifier_block *this,
 	bool prevent_sleep = false;
 #endif
 #if defined(CONFIG_TOUCHSCREEN_SWEEP2WAKE)
-	prevent_sleep = (s2w_switch > 0 || camera_switch > 0);
+	prevent_sleep = (s2w_switch > 0) && (s2w_s2sonly == 0);
 #endif
 #if defined(CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE)
 	prevent_sleep = prevent_sleep || (dt2w_switch > 0);
 #endif
-#endif
-#ifdef CONFIG_PWRKEY_SUSPEND
-	if (pwrkey_pressed)
-		prevent_sleep = false;
 #endif
 
 	TOUCH_DEBUG_TRACE("%s: event = %lu\n", __func__, event);
@@ -1720,11 +1690,6 @@ static int lcd_notifier_callback(struct notifier_block *this,
 	case LCD_EVENT_ON_START:
 		mutex_lock(&ts->input_dev->mutex);
 		synaptics_ts_start(ts);
-#ifdef CONFIG_PWRKEY_SUSPEND
-		if (pwrkey_pressed) {
-			pwrkey_pressed = false;
-		}
-#endif
 		break;
 	case LCD_EVENT_ON_END:
 		if (!ts->curr_resume_state) {
@@ -1735,7 +1700,8 @@ static int lcd_notifier_callback(struct notifier_block *this,
 		}
 		mutex_unlock(&ts->input_dev->mutex);
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-		prevent_sleep_disable_irq_wake(ts->client->irq);
+		if (prevent_sleep)
+			disable_irq_wake(ts->client->irq);
 #endif
 		break;
 	case LCD_EVENT_OFF_START:
@@ -1758,7 +1724,7 @@ static int lcd_notifier_callback(struct notifier_block *this,
 		}
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 		if (prevent_sleep)
-			prevent_sleep_enable_irq_wake(ts->client->irq);
+			enable_irq_wake(ts->client->irq);
 #endif
 		break;
 	default:
@@ -1894,7 +1860,7 @@ static int synaptics_ts_probe(
 
 	ret = request_threaded_irq(client->irq, NULL, touch_irq_handler,
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-			IRQF_TRIGGER_FALLING | IRQF_ONESHOT, client->name, ts);
+			IRQF_TRIGGER_FALLING | IRQF_ONESHOT | IRQF_NO_SUSPEND, client->name, ts);
 #else
 			IRQF_TRIGGER_FALLING | IRQF_ONESHOT, client->name, ts);
 #endif

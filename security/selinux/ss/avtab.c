@@ -624,12 +624,9 @@ int avtab_write_item(struct policydb *p, struct avtab_node *cur, void *fp)
 		return rc;
 
 	if (cur->key.specified & AVTAB_XPERMS) {
-		if (avtab_android_m_compat == 0) {
-			rc = put_entry(&cur->datum.u.xperms->specified,
-					sizeof(u8), 1, fp);
-			if (rc)
-				return rc;
-		}
+		rc = put_entry(&cur->datum.u.xperms->specified, sizeof(u8), 1, fp);
+		if (rc)
+			return rc;
 		rc = put_entry(&cur->datum.u.xperms->driver, sizeof(u8), 1, fp);
 		if (rc)
 			return rc;

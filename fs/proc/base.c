@@ -950,16 +950,19 @@ static ssize_t oom_adjust_write(struct file *file, const char __user *buf,
 	printk_once(KERN_WARNING "%s (%d): /proc/%d/oom_adj is deprecated, please use /proc/%d/oom_score_adj instead.\n",
 		  current->comm, task_pid_nr(current), task_pid_nr(task),
 		  task_pid_nr(task));
+
 	task->signal->oom_adj = oom_adjust;
 	/*
 	 * Scale /proc/pid/oom_score_adj appropriately ensuring that a maximum
 	 * value is always attainable.
 	 */
+	delete_from_adj_tree(task);
 	if (task->signal->oom_adj == OOM_ADJUST_MAX)
 		task->signal->oom_score_adj = OOM_SCORE_ADJ_MAX;
 	else
 		task->signal->oom_score_adj = (oom_adjust * OOM_SCORE_ADJ_MAX) /
 								-OOM_DISABLE;
+	add_2_adj_tree(task);
 	trace_oom_score_adj_update(task);
 err_sighand:
 	unlock_task_sighand(task, &flags);
@@ -1045,7 +1048,10 @@ static ssize_t oom_score_adj_write(struct file *file, const char __user *buf,
 		goto err_sighand;
 	}
 
+	delete_from_adj_tree(task);
 	task->signal->oom_score_adj = oom_score_adj;
+	add_2_adj_tree(task);
+
 	if (has_capability_noaudit(current, CAP_SYS_RESOURCE))
 		task->signal->oom_score_adj_min = oom_score_adj;
 	trace_oom_score_adj_update(task);
@@ -1804,7 +1810,7 @@ static int tid_fd_revalidate(struct dentry *dentry, struct nameidata *nd)
 			rcu_read_lock();
 			file = fcheck_files(files, fd);
 			if (file) {
-				unsigned i_mode, f_mode = file->f_mode;
+				unsigned f_mode = file->f_mode;
 
 				rcu_read_unlock();
 				put_files_struct(files);
@@ -1820,12 +1826,14 @@ static int tid_fd_revalidate(struct dentry *dentry, struct nameidata *nd)
 					inode->i_gid = 0;
 				}
 
-				i_mode = S_IFLNK;
-				if (f_mode & FMODE_READ)
-					i_mode |= S_IRUSR | S_IXUSR;
-				if (f_mode & FMODE_WRITE)
-					i_mode |= S_IWUSR | S_IXUSR;
-				inode->i_mode = i_mode;
+				if (S_ISLNK(inode->i_mode)) {
+					unsigned i_mode = S_IFLNK;
+					if (f_mode & FMODE_READ)
+						i_mode |= S_IRUSR | S_IXUSR;
+					if (f_mode & FMODE_WRITE)
+						i_mode |= S_IWUSR | S_IXUSR;
+					inode->i_mode = i_mode;
+				}
 
 				security_task_to_inode(task, inode);
 				put_task_struct(task);
@@ -1860,6 +1868,7 @@ static struct dentry *proc_fd_instantiate(struct inode *dir,
 	ei = PROC_I(inode);
 	ei->fd = fd;
 
+	inode->i_mode = S_IFLNK;
 	inode->i_op = &proc_pid_link_inode_operations;
 	inode->i_size = 64;
 	ei->op.proc_get_link = proc_fd_link;
@@ -2090,6 +2099,7 @@ static int proc_map_files_get_link(struct dentry *dentry, struct path *path)
 	if (rc)
 		goto out_mmput;
 
+	rc = -ENOENT;
 	down_read(&mm->mmap_sem);
 	vma = find_exact_vma(mm, vm_start, vm_end);
 	if (vma && vma->vm_file) {

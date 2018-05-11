@@ -70,6 +70,10 @@
 #define CURRENT_MODE_INIT AUTO_MODE;
 #endif
 
+#if defined(CONFIG_THUMB2_KERNEL) || defined(CONFIG_ARCH_MSM8974)
+#define SWP_OFF
+#endif
+
 static int current_mode = CURRENT_MODE_INIT;
 
 static int is_hw_lock_type;

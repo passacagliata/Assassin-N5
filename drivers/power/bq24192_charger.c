@@ -33,7 +33,6 @@
 
 #ifdef CONFIG_FORCE_FAST_CHARGE
 #include <linux/fastchg.h>
-#define USB_FASTCHG_LOAD 900 /* uA */
 #endif
 
 /* Register definitions */
@@ -321,6 +320,9 @@ static int bq24192_set_input_i_limit(struct bq24192_chip *chip, int ma)
 {
 	int i;
 	u8 temp;
+#ifdef CONFIG_FORCE_FAST_CHARGE
+	int custom_ma = ma;
+#endif
 
 	if (ma < INPUT_CURRENT_LIMIT_MIN_MA
 			|| ma > INPUT_CURRENT_LIMIT_MAX_MA) {
@@ -338,8 +340,55 @@ static int bq24192_set_input_i_limit(struct bq24192_chip *chip, int ma)
 		i = 0;
 	}
 
-	temp = icl_ma_table[i].value;
+#ifdef CONFIG_FORCE_FAST_CHARGE
+	if (force_fast_charge == 1) {
+		i = 4;
+		custom_ma = FAST_CHARGE_1200;
+	} else if (force_fast_charge == 2) {
+		switch (fast_charge_level) {
+			case FAST_CHARGE_500:
+				i = 2;
+				custom_ma = FAST_CHARGE_500;
+				break;
+			case FAST_CHARGE_900:
+				i = 3;
+				custom_ma = FAST_CHARGE_900;
+				break;
+			case FAST_CHARGE_1200:
+				i = 4;
+				custom_ma = FAST_CHARGE_1200;
+				break;
+			case FAST_CHARGE_1500:
+				i = 5;
+				custom_ma = FAST_CHARGE_1500;
+				break;
+			case FAST_CHARGE_2000:
+				i = 6;
+				custom_ma = FAST_CHARGE_2000;
+				break;
+			default:
+				break;
+		}
 
+	}
+	temp = icl_ma_table[i].value;
+#else
+	temp = icl_ma_table[i].value;
+#endif
+
+#ifdef CONFIG_FORCE_FAST_CHARGE
+	if (custom_ma > chip->max_input_i_ma) {
+		chip->saved_input_i_ma = custom_ma;
+		pr_info("reject %d mA due to therm mitigation\n", custom_ma);
+		return 0;
+	}
+
+	if (!chip->therm_mitigation)
+		chip->saved_input_i_ma = custom_ma;
+
+	chip->therm_mitigation = false;
+	pr_info("input current limit = %d setting 0x%02x\n", custom_ma, temp);
+#else
 	if (ma > chip->max_input_i_ma) {
 		chip->saved_input_i_ma = ma;
 		pr_info("reject %d mA due to therm mitigation\n", ma);
@@ -350,7 +399,9 @@ static int bq24192_set_input_i_limit(struct bq24192_chip *chip, int ma)
 		chip->saved_input_i_ma = ma;
 
 	chip->therm_mitigation = false;
-	pr_info("input current limit = %d setting 0x%02x\n", ma, temp);
+	pr_debug("input current limit = %d setting 0x%02x\n", ma, temp);
+#endif
+
 	return bq24192_masked_write(chip->client, INPUT_SRC_CONT_REG,
 			INPUT_CURRENT_LIMIT_MASK, temp);
 }
@@ -1043,27 +1094,10 @@ static void bq24192_external_power_changed(struct power_supply *psy)
 		chip->usb_psy->get_property(chip->usb_psy,
 				  POWER_SUPPLY_PROP_CURRENT_MAX, &ret);
 		bq24192_set_input_vin_limit(chip, chip->vin_limit_mv);
-
-#ifdef CONFIG_FORCE_FAST_CHARGE
-		if (force_fast_charge)
-			bq24192_set_input_i_limit(chip, USB_FASTCHG_LOAD);
-		else
-			bq24192_set_input_i_limit(chip, ret.intval / 1000);
-#else
 		bq24192_set_input_i_limit(chip, ret.intval / 1000);
-#endif
 		bq24192_set_ibat_max(chip, USB_MAX_IBAT_MA);
-#ifdef CONFIG_FORCE_FAST_CHARGE
-		if (force_fast_charge)
-			pr_info("usb is online and fast charge enabled! i_limit = %d v_limit = %d\n",
-					USB_FASTCHG_LOAD, chip->vin_limit_mv);
-		else
-			pr_info("usb is online! i_limit = %d v_limit = %d\n",
-					ret.intval / 1000, chip->vin_limit_mv);
-#else
 		pr_info("usb is online! i_limit = %d v_limit = %d\n",
 				ret.intval / 1000, chip->vin_limit_mv);
-#endif
 	} else if (chip->ac_online &&
 			bq24192_is_charger_present(chip)) {
 		chip->icl_first = true;

@@ -105,22 +105,6 @@ int wcd9xxx_reg_read(struct wcd9xxx *wcd9xxx, unsigned short reg)
 }
 EXPORT_SYMBOL_GPL(wcd9xxx_reg_read);
 
-#ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
-int wcd9xxx_reg_read_safe(struct wcd9xxx *wcd9xxx, unsigned short reg)
-{
-        u8 val;
-        int ret;
-
-        ret = wcd9xxx_read(wcd9xxx, reg, 1, &val, false);
-
-        if (ret < 0)
-                return ret;
-        else
-                return val;
-}
-EXPORT_SYMBOL_GPL(wcd9xxx_reg_read_safe);
-#endif
-
 static int wcd9xxx_write(struct wcd9xxx *wcd9xxx, unsigned short reg,
 			int bytes, void *src, bool interface_reg)
 {
@@ -735,8 +719,9 @@ static int wcd9xxx_enable_static_supplies(struct wcd9xxx *wcd9xxx,
 	}
 
 	while (ret && --i)
-		if (!pdata->regulator[i].ondemand)
-			regulator_disable(wcd9xxx->supplies[i].consumer);
+		if (i < wcd9xxx->num_of_supplies)
+			if (!pdata->regulator[i].ondemand)
+				regulator_disable(wcd9xxx->supplies[i].consumer);
 
 	return ret;
 }

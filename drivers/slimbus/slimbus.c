@@ -1018,7 +1018,7 @@ int slim_xfer_msg(struct slim_controller *ctrl, struct slim_device *sbdev,
 	int ret;
 	u16 sl, cur;
 	u16 ec;
-	u8 tid, mlen = 6;
+	u8 tid = 0, mlen = 6;
 
 	ret = slim_ele_access_sanity(msg, mc, rbuf, wbuf, len);
 	if (ret)
@@ -2576,10 +2576,9 @@ static void slim_change_existing_chans(struct slim_controller *ctrl, int coeff)
 	}
 	for (i = 0; i < len; i++) {
 		struct slim_ich *slc = arr[i];
-		if (slc->state == SLIM_CH_ACTIVE ||
-			slc->state == SLIM_CH_SUSPENDED)
+		if (slc->state == SLIM_CH_ACTIVE || slc->state == SLIM_CH_SUSPENDED)
 			slc->offset = slc->newoff;
-			slc->interval = slc->newintr;
+		slc->interval = slc->newintr;
 	}
 }
 static void slim_chan_changes(struct slim_device *sb, bool revert)

@@ -21,10 +21,6 @@
 #ifndef _LINUX_SWEEP2WAKE_H
 #define _LINUX_SWEEP2WAKE_H
 
-extern int s2w_switch;
-extern int camera_switch;
-extern int gestures_switch;
-extern int vib_strength;
-void wake_pwrtrigger(void);
+extern int s2w_switch, s2w_s2sonly;
 
 #endif	/* _LINUX_SWEEP2WAKE_H */

@@ -44,10 +44,6 @@
 #define INIT_UDELAY		200
 #define MAX_UDELAY		2000
 
-#ifdef CONFIG_CPU_FREQ_GOV_PHANTOM
-int graphics_boost = 6;
-#endif
-
 struct clk_pair {
 	const char *name;
 	uint map;
@@ -192,10 +188,6 @@ void kgsl_pwrctrl_pwrlevel_change(struct kgsl_device *device,
 
 
 	trace_kgsl_pwrlevel(device, pwr->active_pwrlevel, pwrlevel->gpu_freq);
-
-#ifdef CONFIG_CPU_FREQ_GOV_PHANTOM
-        graphics_boost = pwr->active_pwrlevel;
-#endif
 }
 
 EXPORT_SYMBOL(kgsl_pwrctrl_pwrlevel_change);
@@ -1648,8 +1640,7 @@ int kgsl_active_count_wait(struct kgsl_device *device, int count)
 		int ret;
 		mutex_unlock(&device->mutex);
 		ret = wait_event_timeout(device->active_cnt_wq,
-			_check_active_count(device, count),
-				msecs_to_jiffies(1000));
+			_check_active_count(device, count), msecs_to_jiffies(1000));
 		mutex_lock(&device->mutex);
 		result = ret == 0 ? -ETIMEDOUT : 0;
 	}

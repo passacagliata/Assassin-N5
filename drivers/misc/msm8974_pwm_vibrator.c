@@ -85,10 +85,7 @@ struct timed_vibrator_data {
 	int min_timeout;
 	int ms_time;            /* vibrator duration */
 	int status;             /* vibe status */
-	int vtg_default;        /* default gain */
-	int vtg_min;            /* min gain */
-	int vtg_max;            /* max gain */
-	int vtg_level;          /* current gain */
+	int gain;               /* default max gain(amp) */
 	int pwm;                /* n-value */
 	int braking_gain;
 	int braking_ms;
@@ -103,9 +100,6 @@ struct timed_vibrator_data {
 	bool use_vdd_supply;
 	struct regulator *vdd_reg;
 };
-#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
-static struct timed_vibrator_data *vib_dev;
-#endif
 
 static struct clk *cam_gp1_clk;
 
@@ -337,11 +331,11 @@ static void msm8974_pwm_vibrator_on(struct work_struct *work)
 	struct timed_vibrator_data *vib =
 		container_of(delayed_work, struct timed_vibrator_data,
 				work_vibrator_on);
-	int vtg_level = vib->vtg_level;
+	int gain = vib->gain;
 	int pwm = vib->pwm;
 
-	pr_debug("%s: vtg_level = %d pwm = %d\n", __func__, vtg_level, pwm);
-	msm8974_pwm_vibrator_force_set(vib, vtg_level, pwm);
+	pr_debug("%s: gain = %d pwm = %d\n", __func__, gain, pwm);
+	msm8974_pwm_vibrator_force_set(vib, gain, pwm);
 }
 
 static void msm8974_pwm_vibrator_off(struct work_struct *work)
@@ -428,13 +422,6 @@ static void vibrator_enable(struct timed_output_dev *dev, int value)
 	spin_unlock_irqrestore(&vib->spinlock, flags);
 }
 
-#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
-void set_vibrate(int value)
-{
-	vibrator_enable(&vib_dev->dev, value);
-}
-#endif
-
 static int vibrator_gpio_init(struct timed_vibrator_data *vib)
 {
 	int rc;
@@ -483,22 +470,9 @@ static int vibrator_parse_dt(struct device *dev,
 	}
 	vib->motor_pwm_gpio = ret;
 
-	ret = of_property_read_u32(np, "vtg_default", &vib->vtg_default);
+	ret = of_property_read_u32(np, "motor-amp", &vib->gain);
 	if (ret < 0) {
-		pr_err("%s: vtg_default failed\n", __func__);
-		return ret;
-	}
-	vib->vtg_level = vib->vtg_default;
-
-	ret = of_property_read_u32(np, "vtg_min", &vib->vtg_min);
-	if (ret < 0) {
-		pr_err("%s: vtg_min failed\n", __func__);
-		return ret;
-	}
-
-	ret = of_property_read_u32(np, "vtg_max", &vib->vtg_max);
-	if (ret < 0) {
-		pr_err("%s: vtg_max failed\n", __func__);
+		pr_err("%s: motor-amp failed\n", __func__);
 		return ret;
 	}
 
@@ -511,10 +485,10 @@ static int vibrator_parse_dt(struct device *dev,
 	vib->use_vdd_supply = of_property_read_bool(np, "use-vdd-supply");
 
 	pr_debug("%s: motor_gpio_en %d, motor_gpio_pwm %d, "
-		 "vtg_level %d, n_value(pwm) %d vdd %d\n", __func__,
+		 "amp(gain) %d, n_value(pwm) %d vdd %d\n", __func__,
 			vib->haptic_en_gpio,
 			vib->motor_pwm_gpio,
-			vib->vtg_level, vib->pwm,
+			vib->gain, vib->pwm,
 			vib->use_vdd_supply);
 
 	ret = of_property_read_u32(np, "vibe-warmup-delay",
@@ -544,66 +518,38 @@ static int vibrator_parse_dt(struct device *dev,
 	return 0;
 }
 
-static ssize_t vibrator_vtg_default_show(struct device *dev,
+static ssize_t vibrator_amp_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct timed_output_dev *_dev = dev_get_drvdata(dev);
 	struct timed_vibrator_data *vib =
 		container_of(_dev, struct timed_vibrator_data, dev);
+	int gain = vib->gain;
 
-	return sprintf(buf, "%d\n", vib->vtg_default);
+	return sprintf(buf, "%d\n", gain);
 }
 
-static ssize_t vibrator_vtg_min_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct timed_output_dev *_dev = dev_get_drvdata(dev);
-	struct timed_vibrator_data *vib =
-		container_of(_dev, struct timed_vibrator_data, dev);
-
-	return sprintf(buf, "%d\n", vib->vtg_min);
-}
-
-static ssize_t vibrator_vtg_max_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct timed_output_dev *_dev = dev_get_drvdata(dev);
-	struct timed_vibrator_data *vib =
-		container_of(_dev, struct timed_vibrator_data, dev);
-
-	return sprintf(buf, "%d\n", vib->vtg_max);
-}
-
-static ssize_t vibrator_vtg_level_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct timed_output_dev *_dev = dev_get_drvdata(dev);
-	struct timed_vibrator_data *vib =
-		container_of(_dev, struct timed_vibrator_data, dev);
-
-	return sprintf(buf, "%d\n", vib->vtg_level);
-}
-
-static ssize_t vibrator_vtg_level_store(struct device *dev,
+static ssize_t vibrator_amp_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
 	struct timed_output_dev *_dev = dev_get_drvdata(dev);
 	struct timed_vibrator_data *vib =
 		container_of(_dev, struct timed_vibrator_data, dev);
-	int ret, r;
+	long r;
+	int ret;
 
-	ret = kstrtoint(buf, 10, &r);
+	ret = kstrtol(buf, 10, &r);
 	if (ret < 0) {
 		pr_err("%s: failed to store value\n", __func__);
 		return ret;
 	}
 
-	if (r < vib->vtg_min || r > vib->vtg_max) {
-		pr_err("%s: vtg_level %d out of range\n", __func__, r);
+	if (r < 0 || r > 100) {
+		pr_err("%s: out of range\n", __func__);
 		return -EINVAL;
 	}
 
-	vib->vtg_level = r;
+	vib->gain = r;
 
 	return size;
 }
@@ -622,16 +568,17 @@ static ssize_t vibrator_pwm_store(struct device *dev, struct device_attribute *a
 	struct timed_output_dev *_dev = dev_get_drvdata(dev);
 	struct timed_vibrator_data *vib =
 		container_of(_dev, struct timed_vibrator_data, dev);
-	int ret, r;
+	long r;
+	int ret;
 
-	ret = kstrtoint(buf, 10, &r);
+	ret = kstrtol(buf, 10, &r);
 	if (ret < 0) {
 		pr_err("%s: failed to store value\n", __func__);
 		return ret;
 	}
 
 	if (r < 0) {
-		pr_err("%s: pwm %d out of range\n", __func__, r);
+		pr_err("%s: out of range\n", __func__);
 		return -EINVAL;
 	}
 
@@ -656,16 +603,17 @@ static ssize_t vibrator_braking_gain_store(struct device *dev,
 	struct timed_output_dev *_dev = dev_get_drvdata(dev);
 	struct timed_vibrator_data *vib =
 		container_of(_dev, struct timed_vibrator_data, dev);
-	int ret, r;
+	long r;
+	int ret;
 
-	ret = kstrtoint(buf, 10, &r);
+	ret = kstrtol(buf, 10, &r);
 	if (ret < 0) {
 		pr_err("%s: failed to store value\n", __func__);
 		return ret;
 	}
 
 	if (r < 0 || r > 100) {
-		pr_err("%s: braking_gain %d out of range\n", __func__, r);
+		pr_err("%s: out of range\n", __func__);
 		return -EINVAL;
 	}
 
@@ -690,16 +638,17 @@ static ssize_t vibrator_braking_ms_store(struct device *dev,
 	struct timed_output_dev *_dev = dev_get_drvdata(dev);
 	struct timed_vibrator_data *vib =
 		container_of(_dev, struct timed_vibrator_data, dev);
-	int ret, r;
+	long r;
+	int ret;
 
-	ret = kstrtoint(buf, 10, &r);
+	ret = kstrtol(buf, 10, &r);
 	if (ret < 0) {
 		pr_err("%s: failed to store value\n", __func__);
 		return ret;
 	}
 
 	if (r < 0 || r > vib->max_timeout) {
-		pr_err("%s: braking_ms %d out of range\n", __func__, r);
+		pr_err("%s: out of range\n", __func__);
 		return -EINVAL;
 	}
 
@@ -724,16 +673,17 @@ static ssize_t vibrator_driving_ms_store(struct device *dev,
 	struct timed_output_dev *_dev = dev_get_drvdata(dev);
 	struct timed_vibrator_data *vib =
 		container_of(_dev, struct timed_vibrator_data, dev);
-	int ret, r;
+	long r;
+	int ret;
 
-	ret = kstrtoint(buf, 10, &r);
+	ret = kstrtol(buf, 10, &r);
 	if (ret < 0) {
 		pr_err("%s: failed to store value\n", __func__);
 		return ret;
 	}
 
 	if (r < 0 || r > vib->max_timeout) {
-		pr_err("%s: driving_ms %d out of range\n", __func__, r);
+		pr_err("%s: out of range\n", __func__);
 		return -EINVAL;
 	}
 
@@ -758,16 +708,17 @@ static ssize_t vibrator_warmup_ms_store(struct device *dev,
 	struct timed_output_dev *_dev = dev_get_drvdata(dev);
 	struct timed_vibrator_data *vib =
 		container_of(_dev, struct timed_vibrator_data, dev);
-	int ret, r;
+	long r;
+	int ret;
 
-	ret = kstrtoint(buf, 10, &r);
+	ret = kstrtol(buf, 10, &r);
 	if (ret < 0) {
 		pr_err("%s: failed to store value\n", __func__);
 		return ret;
 	}
 
 	if (r < 0 || r > vib->max_timeout) {
-		pr_err("%s: warmup_ms %d out of range\n", __func__, r);
+		pr_err("%s: out of range\n", __func__);
 		return -EINVAL;
 	}
 
@@ -777,11 +728,7 @@ static ssize_t vibrator_warmup_ms_store(struct device *dev,
 }
 
 static struct device_attribute vibrator_device_attrs[] = {
-	__ATTR(vtg_default, S_IRUGO, vibrator_vtg_default_show, NULL),
-	__ATTR(vtg_min, S_IRUGO, vibrator_vtg_min_show, NULL),
-	__ATTR(vtg_max, S_IRUGO, vibrator_vtg_max_show, NULL),
-	__ATTR(vtg_level, S_IRUGO | S_IWUSR, vibrator_vtg_level_show,
-		vibrator_vtg_level_store),
+	__ATTR(amp, S_IRUGO | S_IWUSR, vibrator_amp_show, vibrator_amp_store),
 	__ATTR(n_val, S_IRUGO | S_IWUSR, vibrator_pwm_show, vibrator_pwm_store),
 	__ATTR(braking_gain, S_IRUGO | S_IWUSR,
 		vibrator_braking_gain_show, vibrator_braking_gain_store),
@@ -864,9 +811,7 @@ static int msm8974_pwm_vibrator_probe(struct platform_device *pdev)
 			goto err_sysfs;
 		}
 	}
-#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
-	vib_dev = vib;
-#endif
+
 	pr_info("%s: probed\n", __func__);
 	return 0;
 
